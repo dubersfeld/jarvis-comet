@@ -31,10 +31,10 @@ To launch the demo run the command `mvn springboot:run` in project directories p
 Here are some screen shots that can be seen during the demo:
 
 Animation step
-![alt text](images/step.png "Animation step")
+![alt text](images/step.jpg "Animation step")
 
 Animation completed
-![alt text](images/convexHull.png "Animation completed")
+![alt text](images/convexHull.jpg "Animation completed")
 
 For a step-by-step demonstration of the Jarvis March algorithm please visit these repository:
 
