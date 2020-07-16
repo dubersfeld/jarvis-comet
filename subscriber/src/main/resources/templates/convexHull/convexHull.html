@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="utf-8">
+    <title>Hello Jarvis</title>
+    <link href="/webjars/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" th:href="@{/css/chDemo.css}" />
+    <script src="/webjars/jquery/jquery.min.js"></script>
+    <script src="/webjars/sockjs-client/sockjs.min.js"></script>
+    <script src="/webjars/stomp-websocket/stomp.min.js"></script>
+    
+<script type="text/javascript" th:inline="javascript">
+"use strict";
+
+var stompClient = null;
+var xMin, yMin, xMax, yMax;
+var points = [];
+var S = [];
+var context;
+var theCanvas;
+
+function canvasSupport() {	  
+	return !!document.createElement('canvas').getContext;
+} 
+
+function canvasApp() {
+
+	function PointMsg(index, xpos, ypos) {
+		this.index = index;
+	    this.xpos = xpos; 
+	    this.ypos = ypos;
+	}
+
+	function Point(index) {
+		this.index = index;
+		this.xPos = 0; 
+		this.yPos = 0;
+	}// Point
+	
+	
+	function drawPoint(point) {
+	    var xa = point.xpos - 5;
+	    var xb = point.xpos + 5;
+	    var ya = point.ypos - 5;
+	    var yb = point.ypos + 5;
+		console.log("drawPoint " + point.xpos);
+	    context.lineWidth = 2;
+	    context.strokeStyle = "black";     
+	    context.beginPath();
+	    context.moveTo(xa, point.ypos);
+	    context.lineTo(xb, point.ypos);
+	    context.stroke();
+	    context.closePath();
+	    context.beginPath();
+	    context.moveTo(point.xpos, ya);
+	    context.lineTo(point.xpos, yb);
+	    context.stroke();
+	    context.closePath();  
+	    var roff = 5;
+	    setTextStyle();
+	    context.fillText("p"+point.index, point.xpos + roff, point.ypos - roff);        
+	}// drawPoint
+	
+	// get canvas context
+	if (!canvasSupport) {
+	  alert("canvas not supported");
+	  return;
+	} else {
+	  theCanvas = document.getElementById("canvas");
+	  context = theCanvas.getContext("2d");
+	}
+	
+	xMin = 0;
+	yMin = 0;
+	xMax = theCanvas.width;
+	yMax = theCanvas.height; 
+
+	var delay = 100;// for animation only
+	  
+	var animIndex;
+	  
+	var result;
+	  
+	var results = [];
+	  
+	var status;
+
+	var Npoints = 30;
+	  
+	var S = [];
+
+	var limit = 0;
+	  
+	var points;
+	var pointList;
+	
+	function setTextStyle() {
+	    context.fillStyle    = '#000000';
+	    context.font         = '12px _sans';
+	}
+
+	function fillBackground() {
+	    // draw background
+	    context.fillStyle = '#ffffff';
+	    context.fillRect(xMin, yMin, xMax, yMax);    
+	}// fillBackground
+		
+	function drawSegment(p1, p2, color) {
+    	context.lineWidth = 2;
+    	context.strokeStyle = color;     
+    	context.beginPath();
+    	context.moveTo(p1.xpos, p1.ypos);
+    	context.lineTo(p2.xpos, p2.ypos);
+    	context.stroke();
+    	context.closePath();
+  	}// drawSegment
+	
+	function redraw(points, S) {
+	    // draw all points, connect only points in S according to S sequence
+	   
+	    fillBackground();
+	    
+	    for (var i = 0; i < points.length; i++) {
+	    	console.log(points[i]);	
+	      	drawPoint(points[i]);
+	    }
+	    for (var i = 0; i < S.length-1; i++) {
+	      drawSegment(S[i], S[i+1], "black");
+	    }
+	}// redraw
+	
+	function setConnected(connected) {
+	    $("#connect").prop("disabled", connected);
+	    $("#disconnect").prop("disabled", !connected);
+	    if (connected) {
+	        $("#conversation").show();
+	    }
+	    else {
+	        $("#conversation").hide();
+	    }
+	    $("#greetings").html("");
+	}
+	
+	function showPoints(points) {
+		console.log("points:");
+		console.log(points);
+		S = [];
+		redraw(points, S);
+	}
+	
+	function animStep() {
+	  	if (animIndex < results.length) {
+	  	
+	  		var status = results[animIndex]["status"];
+	  		
+	  		if (status == "STEP" || status == "FINISHED" || status == "REDRAW") {
+	  				
+	  			result = results[animIndex]["snapshot"];
+				
+				var currentVertex = result["currentVertex"];
+				var cand = result["cand"];
+				
+				if (S.length == 0) {
+					S.push(points[currentVertex]);
+				}
+				
+				if (status == "STEP") {		
+					
+					drawSegment(points[currentVertex], points[cand], "green");
+				} else if (status == "REDRAW") {
+					S.push(points[currentVertex]);
+					redraw(points, S);
+	
+				} else  {// finished
+					redraw(points, S);
+				    drawSegment(S[S.length-1], S[0], "black"); 						
+				}// if
+				
+				if (status != "FINISHED") {
+					$('#status').text('Animating...');
+					animIndex++;
+			 		setTimeout(function() { animStep(); }, delay);
+				} else {
+					$('#status').text('Animation completed');
+				}// if
+	  			
+	  		}// if
+
+	  	}// if
+	  	
+ 	}// animstep
+	
+	function anim() {
+			
+  	  	animIndex = 0;
+	  	animStep();// start actual animation
+	}
+
+	function disconnect() {
+	    if (stompClient !== null) {
+	        stompClient.disconnect();
+	    }
+	    setConnected(false);
+	    console.log("Disconnected");
+	}
+	
+	function connect() {
+		
+	    var socket = new SockJS('/websocket');
+	    stompClient = Stomp.over(socket);
+	    stompClient.connect({}, function (frame) {
+	        setConnected(true);
+	        console.log('Connected: ' + frame);
+	        stompClient.subscribe('/topic/jarvis', function (message) {
+	                   	
+	        	var enclume = JSON.parse(message.body);
+	        	console.log("enclume:");
+	        	console.log(enclume);
+	        	
+	        	if (enclume.key == "INIT") {
+	        		/* 
+	        		 first message from server
+	        		 clear context
+	        		 draw all points on canvas
+	        		 and save them as a collection
+	        		*/
+	        		var forge = enclume.payload;
+	        		points = forge.points;
+	        		showPoints(points);
+	        		
+	        	} else if (enclume.key == "RESULTS") {
+	        		console.log("RESULTS received");
+	        		results = enclume.payload;
+	        		console.log(results);
+	        		anim();
+	        	}
+	        	console.log("VERIF");
+	        	console.log(points);
+	        
+	        });
+	    });
+	}
+	
+	 $("form").on('submit', function (e) {
+	        e.preventDefault();
+	    });
+	    $( "#connect" ).click(function() { connect(); });
+	    $( "#disconnect" ).click(function() { disconnect(); });
+	    $( "#send" ).click(function() { sendName(); });
+	
+}// canvasApp
+
+$(document).ready(canvasApp);
+</script>
+
+
+</head>
+<body>
+<noscript><h2 style="color: #ff0000">Seems your browser doesn't support Javascript! Websocket relies on Javascript being
+    enabled. Please enable
+    Javascript and reload this page!</h2></noscript>
+<div id="main-content" class="container">
+    <div class="row">
+        <div class="col-md-6">
+            <form class="form-inline">
+                <div class="form-group">
+                    <label for="connect">WebSocket connection:</label>
+                    <button id="connect" class="btn btn-default" type="submit">Connect</button>
+                    <button id="disconnect" class="btn btn-default" type="submit" disabled="disabled">Disconnect
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div id="display">
+  <canvas id="canvas" width="700" height="600">
+    Your browser does not support HTML 5 Canvas
+  </canvas>
+  <footer>
+  <p>Dominique Ubersfeld, Cachan, France</p>
+  </footer> 
+ 
+</div>
+
+</body>
+</html>
